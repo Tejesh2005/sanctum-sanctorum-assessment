@@ -1,5 +1,6 @@
 """Library loan operations: borrowing and returning books."""
 from datetime import datetime, timedelta
+from math import ceil
 from typing import Dict, List, Optional
 
 from fastapi import HTTPException
@@ -48,7 +49,11 @@ def to_loan_out(loan: Loan, now: datetime) -> LoanOut:
 
 def calculate_late_fee(due_at: datetime, returned_at: datetime, price_cents: int) -> int:
     """25 cents per started day late (any partial day counts), capped at the book's price; 0 if not late."""
-    raise NotImplementedError("calculate_late_fee")
+    if returned_at <= due_at:
+        return 0
+
+    days_late = ceil((returned_at - due_at) / timedelta(days=1))
+    return min(days_late * LATE_FEE_PER_DAY_CENTS, price_cents)
 
 
 def create_loan(db: Session, data: LoanCreate, now: datetime) -> LoanOut:
@@ -131,7 +136,23 @@ def return_loan(db: Session, loan_id: int, now: datetime) -> LoanOut:
     Rules: 404 if missing; 409 if already returned. Sets returned_at = now, restores one copy
     of stock and charges a late fee (see ``calculate_late_fee``).
     """
-    raise NotImplementedError("return_loan")
+    loan = db.get(Loan, loan_id)
+    if loan is None:
+        raise HTTPException(status_code=404, detail="Loan not found")
+    if loan.returned_at is not None:
+        raise HTTPException(status_code=409, detail="Loan has already been returned")
+
+    try:
+        loan.returned_at = now
+        loan.late_fee_cents = calculate_late_fee(loan.due_at, now, loan.book.price_cents)
+        loan.book.stock += 1
+        db.commit()
+    except SQLAlchemyError:
+        db.rollback()
+        raise
+
+    db.refresh(loan)
+    return to_loan_out(loan, now)
 
 
 def list_member_loans(
