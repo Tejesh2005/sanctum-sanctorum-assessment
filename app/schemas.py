@@ -28,7 +28,15 @@ def normalize_isbn13(raw: str) -> str:
     isbn = raw.replace("-", "").replace(" ", "")
     if len(isbn) != 13 or not isbn.isdigit():
         raise ValueError("isbn must contain exactly 13 digits")
-    # TODO: verify the ISBN-13 check digit (see SPEC.md)
+
+    weighted_sum = sum(
+        int(digit) * (1 if index % 2 == 0 else 3)
+        for index, digit in enumerate(isbn[:12])
+    )
+    expected_check_digit = (10 - weighted_sum % 10) % 10
+    if int(isbn[-1]) != expected_check_digit:
+        raise ValueError("isbn has an invalid ISBN-13 checksum")
+
     return isbn
 
 
@@ -107,9 +115,10 @@ class MemberCreate(BaseModel):
     @classmethod
     def normalize_email(cls, value: str) -> str:
         """Validate and normalize the email address."""
-        if not EMAIL_PATTERN.match(value):
+        normalized_email = value.strip().lower()
+        if not EMAIL_PATTERN.match(normalized_email):
             raise ValueError("email is not valid")
-        return value
+        return normalized_email
 
 
 class MemberOut(BaseModel):
@@ -120,6 +129,13 @@ class MemberOut(BaseModel):
     email: str
     tier: str
     created_at: datetime
+
+
+class MemberPage(BaseModel):
+    items: List[MemberOut]
+    total: int
+    limit: int
+    offset: int
 
 
 class MemberStats(BaseModel):
@@ -141,8 +157,18 @@ class OrderItemIn(BaseModel):
 
 class OrderCreate(BaseModel):
     member_id: int
-    # TODO: reject an empty items list and the same book_id appearing twice (both 422)
     items: List[OrderItemIn]
+
+    @model_validator(mode="after")
+    def validate_items(self) -> OrderCreate:
+        if not self.items:
+            raise ValueError("an order must contain at least one item")
+
+        book_ids = [item.book_id for item in self.items]
+        if len(book_ids) != len(set(book_ids)):
+            raise ValueError("the same book may not appear more than once")
+
+        return self
 
 
 class OrderItemOut(BaseModel):

@@ -3,11 +3,12 @@ from datetime import datetime
 from typing import List
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.models import Member, MemberTier, Order
-from app.schemas import MemberCreate, MemberStats
+from app.models import Member, MemberTier, Order, OrderStatus
+from app.schemas import MemberCreate, MemberPage, MemberStats
 
 # Tiers from lowest to highest; a member's rank is their index in this list.
 TIER_ORDER: List[str] = [
@@ -23,7 +24,7 @@ RESTRICTED_MIN_TIER = MemberTier.MASTER.value
 
 def tier_at_least(tier: str, minimum: str) -> bool:
     """True if ``tier`` ranks at or above ``minimum``."""
-    return TIER_ORDER.index(tier) > TIER_ORDER.index(minimum)
+    return TIER_ORDER.index(tier) >= TIER_ORDER.index(minimum)
 
 
 def ensure_can_access_restricted(member: Member) -> None:
@@ -39,10 +40,21 @@ def create_member(db: Session, data: MemberCreate, now: datetime) -> Member:
 
     Rules: email (already stripped + lowercased) must be unique -> 409; created_at = now.
     """
-    # TODO: reject an email that is already in use with 409
+    existing_member = db.scalar(
+        select(Member).where(func.lower(Member.email) == data.email.lower())
+    )
+    if existing_member is not None:
+        raise HTTPException(status_code=409, detail="A member with this email already exists")
+
     member = Member(name=data.name, email=data.email, tier=data.tier.value, created_at=now)
     db.add(member)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        # Keep the API response stable if a concurrent request inserts the
+        # same normalized email after the explicit duplicate check.
+        db.rollback()
+        raise HTTPException(status_code=409, detail="A member with this email already exists") from exc
     db.refresh(member)
     return member
 
@@ -53,6 +65,15 @@ def get_member(db: Session, member_id: int) -> Member:
     if member is None:
         raise HTTPException(status_code=404, detail="Member not found")
     return member
+
+
+def list_members(db: Session, limit: int = 20, offset: int = 0) -> MemberPage:
+    """Return members in stable ID order with offset pagination."""
+    total = db.scalar(select(func.count()).select_from(Member)) or 0
+    members = db.scalars(
+        select(Member).order_by(Member.id).limit(limit).offset(offset)
+    ).all()
+    return MemberPage(items=members, total=total, limit=limit, offset=offset)
 
 
 def list_member_orders(db: Session, member_id: int) -> List[Order]:
@@ -71,4 +92,17 @@ def get_member_stats(db: Session, member_id: int, now: datetime) -> MemberStats:
     - overdue_loans counts unreturned loans with now > due_at.
     - late_fees_cents sums late fees of returned loans.
     """
-    raise NotImplementedError("get_member_stats")
+    member = get_member(db, member_id)
+
+    paid_orders = [order for order in member.orders if order.status == OrderStatus.PAID.value]
+    open_loans = [loan for loan in member.loans if loan.returned_at is None]
+    returned_loans = [loan for loan in member.loans if loan.returned_at is not None]
+
+    return MemberStats(
+        member_id=member.id,
+        orders_paid=len(paid_orders),
+        total_spent_cents=sum(order.total_cents for order in paid_orders),
+        active_loans=len(open_loans),
+        overdue_loans=sum(now > loan.due_at for loan in open_loans),
+        late_fees_cents=sum(loan.late_fee_cents for loan in returned_loans),
+    )
