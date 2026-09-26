@@ -1,4 +1,4 @@
-// Sanctum Sanctorum — Members' Bookstore (vanilla ES module, no build step).
+// Sanctum Sanctorum - Members' Bookstore (vanilla ES module, no build step).
 // All HTTP goes through `api()`, which normalises errors (incl. FastAPI 422 arrays
 // and 501 "Not implemented") and surfaces them as non-blocking toasts.
 
@@ -30,7 +30,7 @@ const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => (
 ));
 
 const moneyFmt = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
-const fmtMoney = (cents) => (Number.isFinite(cents) ? moneyFmt.format(cents / 100) : '—');
+const fmtMoney = (cents) => (Number.isFinite(cents) ? moneyFmt.format(cents / 100) : 'N/A');
 
 const dateFmt = new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' });
 const dayFmt = new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeZone: 'UTC' });
@@ -43,7 +43,7 @@ function parseApiDate(iso) {
 }
 function fmtDate(iso, { dateOnly = false } = {}) {
   const d = parseApiDate(iso);
-  if (!d) return iso ? esc(iso) : '—';
+  if (!d) return iso ? esc(iso) : 'N/A';
   return dateOnly ? dayFmt.format(d) : `${dateFmt.format(d)} UTC`;
 }
 
@@ -342,6 +342,7 @@ const state = {
   memberId: null,
   member: null,          // MemberOut or null when unknown/unverified
   stats: { data: null, error: null, loading: false },
+  members: { items: [], total: 0, limit: 3, offset: 0, error: null, loading: false, seq: 0 },
   cart: [],              // [{ book_id, title, author, price_cents, stock, restricted, quantity }]
   books: new Map(),      // id -> BookOut | null (null = lookup failed)
   catalog: {
@@ -420,7 +421,7 @@ async function checkHealth() {
 const TAB_IDS = ['catalog', 'members', 'cart', 'loans', 'reports'];
 const loaders = {
   catalog: () => loadCatalog(),
-  members: () => { renderMemberCard(); loadStats(); },
+  members: () => { renderMemberCard(); loadStats(); loadMemberDirectory(); },
   cart: () => { renderCart(); renderOrderDetail(); loadOrders(); },
   loans: () => loadLoans(),
   reports: () => loadReports(),
@@ -516,7 +517,7 @@ async function loadCatalog() {
 }
 
 function stockHTML(stock) {
-  if (!Number.isFinite(stock)) return '—';
+  if (!Number.isFinite(stock)) return 'N/A';
   if (stock === 0) return '<span class="stock-out">Out of stock</span>';
   if (stock <= 2) return `<span class="stock-low">${stock}</span>`;
   return String(stock);
@@ -588,7 +589,7 @@ function renderCatalog() {
     const to = c.offset + c.items.length;
     const pages = Math.max(1, Math.ceil(c.total / c.limit));
     const page = Math.floor(c.offset / c.limit) + 1;
-    info.textContent = `Showing ${from}–${to} of ${c.total} · Page ${page} of ${pages}`;
+    info.textContent = `Showing ${from}-${to} of ${c.total} | Page ${page} of ${pages}`;
     prev.disabled = c.offset <= 0;
     next.disabled = c.offset + c.limit >= c.total;
   }
@@ -859,7 +860,7 @@ async function checkout(button) {
     renderCart();
     state.orderDetail = { order, heading: 'Order placed' };
     renderOrderDetail();
-    toast({ type: 'success', title: `Order #${order.id} placed`, message: `Total ${fmtMoney(order.total_cents)} — awaiting payment.` });
+    toast({ type: 'success', title: `Order #${order.id} placed`, message: `Total ${fmtMoney(order.total_cents)}, awaiting payment.` });
     $('#order-detail').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     loadOrders();
     state.catalog.loaded = false; // stock changed
@@ -953,7 +954,7 @@ function renderOrders() {
       <td>${fmtDate(ord.created_at)}</td>
       <td class="num">${qty}</td>
       <td class="num">${fmtMoney(ord.subtotal_cents)}</td>
-      <td class="num discount">${ord.discount_cents ? `−${fmtMoney(ord.discount_cents)} <span class="cell-sub">(${esc(ord.discount_percent)}%)</span>` : '—'}</td>
+      <td class="num discount">${ord.discount_cents ? `−${fmtMoney(ord.discount_cents)} <span class="cell-sub">(${esc(ord.discount_percent)}%)</span>` : 'None'}</td>
       <td class="num"><strong>${fmtMoney(ord.total_cents)}</strong></td>
       <td><span class="badge badge-${esc(ord.status)}">${esc(ord.status)}</span></td>
       <td class="actions"><div class="btn-group">
@@ -1048,6 +1049,84 @@ function initials(name) {
   return String(name || '?').trim().split(/\s+/).slice(0, 2).map((p) => p[0]?.toUpperCase() || '').join('') || '?';
 }
 
+function renderMemberDirectory() {
+  const directory = state.members;
+  const table = $('#members-table');
+  const body = $('#members-body');
+  const info = $('#member-page-info');
+  const prev = $('[data-action="member-page-prev"]');
+  const next = $('[data-action="member-page-next"]');
+  if (!table || !body || !info || !prev || !next) return;
+
+  table.setAttribute('aria-busy', String(directory.loading));
+  prev.disabled = directory.loading || directory.offset === 0;
+  next.disabled = directory.loading || directory.offset + directory.limit >= directory.total;
+
+  if (directory.error) {
+    body.innerHTML = `<tr><td colspan="5">${inlineErrorHTML(directory.error, 'members')}</td></tr>`;
+    info.textContent = 'Member directory unavailable';
+    return;
+  }
+  if (directory.loading) {
+    body.innerHTML = '<tr><td colspan="5" class="empty">Loading members...</td></tr>';
+    info.textContent = 'Loading member directory';
+    return;
+  }
+  if (!directory.items.length) {
+    body.innerHTML = '<tr><td colspan="5" class="empty">No members found.</td></tr>';
+    info.textContent = '0 members';
+    return;
+  }
+
+  body.innerHTML = directory.items.map((member) => {
+    const current = member.id === state.memberId;
+    return `<tr${current ? ' class="current-member"' : ''}>
+      <td><span class="member-name">${esc(member.name)}</span><div class="cell-sub">ID ${esc(member.id)}</div></td>
+      <td class="member-email">${esc(member.email)}</td>
+      <td><span class="badge badge-tier">${esc(cap(member.tier))}</span></td>
+      <td>${fmtDate(member.created_at, { dateOnly: true })}</td>
+      <td class="actions">${current
+        ? '<span class="badge badge-paid">Current</span>'
+        : `<button type="button" class="btn btn-secondary btn-sm" data-action="select-member" data-id="${member.id}">Use member</button>`}
+      </td>
+    </tr>`;
+  }).join('');
+
+  const from = directory.offset + 1;
+  const to = Math.min(directory.offset + directory.items.length, directory.total);
+  const page = Math.floor(directory.offset / directory.limit) + 1;
+  const pages = Math.max(1, Math.ceil(directory.total / directory.limit));
+  info.textContent = `Showing ${from}-${to} of ${directory.total} members | Page ${page} of ${pages}`;
+}
+
+async function loadMemberDirectory() {
+  const directory = state.members;
+  const seq = ++directory.seq;
+  directory.loading = true;
+  directory.error = null;
+  renderMemberDirectory();
+  try {
+    const data = await api('/members', {
+      query: { limit: directory.limit, offset: directory.offset },
+      context: 'Loading member directory',
+    });
+    if (seq !== directory.seq) return;
+    directory.items = Array.isArray(data?.items) ? data.items : [];
+    directory.total = Number.isInteger(data?.total) ? data.total : directory.items.length;
+    directory.error = null;
+  } catch (err) {
+    if (seq !== directory.seq) return;
+    directory.items = [];
+    directory.total = 0;
+    directory.error = err;
+  } finally {
+    if (seq === directory.seq) {
+      directory.loading = false;
+      renderMemberDirectory();
+    }
+  }
+}
+
 function renderMemberCard() {
   const el = $('#member-card');
   if (!state.memberId) {
@@ -1071,8 +1150,8 @@ function renderMemberCard() {
         </div>
       </div>
       <dl class="perks">
-        <div><dt>Order discount</dt><dd>${tier in TIER_DISCOUNT ? `${TIER_DISCOUNT[tier]}%` : '—'} <span class="cell-sub">+5% on 10+ items</span></dd></div>
-        <div><dt>Loan limit</dt><dd>${limit === null ? '—' : limit === Infinity ? 'Unlimited' : pluralize(limit, 'book')}</dd></div>
+        <div><dt>Order discount</dt><dd>${tier in TIER_DISCOUNT ? `${TIER_DISCOUNT[tier]}%` : 'N/A'} <span class="cell-sub">+5% on 10+ items</span></dd></div>
+        <div><dt>Loan limit</dt><dd>${limit === null ? 'N/A' : limit === Infinity ? 'Unlimited' : pluralize(limit, 'book')}</dd></div>
         <div><dt>Restricted titles</dt><dd>${TIERS.indexOf(tier) >= TIERS.indexOf('master') ? 'Allowed' : 'Master tier required'}</dd></div>
         <div><dt>Late fee</dt><dd>${fmtMoney(LATE_FEE_PER_DAY_CENTS)}/day <span class="cell-sub">(capped at price)</span></dd></div>
       </dl>`
@@ -1138,6 +1217,7 @@ function setMember(id, member = null) {
   }
   renderHeader();
   renderMemberCard();
+  renderMemberDirectory();
   if (!$('#panel-cart').hidden) { renderCart(); renderOrderDetail(); }
 }
 
@@ -1195,7 +1275,7 @@ function initMembers() {
         showFieldError(input, `No member with ID ${id}.`);
         input.focus();
       } else if (err.status === 501 || err.status >= 500 || err.status === 0) {
-        // Can't verify right now — let the user act as this id anyway so other features stay usable.
+        // Can't verify right now, so let the user act as this id and keep other features usable.
         setMember(id, null);
         signin.reset();
         showFormSummary(signin, `<strong>Couldn't verify member #${esc(id)}${err.status ? ` (${err.status})` : ''}.</strong> Acting as this ID anyway.`);
@@ -1224,6 +1304,7 @@ function initMembers() {
       create.reset();
       toast({ type: 'success', title: 'Member created', message: `${member.name} (#${member.id}) is now signed in.` });
       loadStats();
+      loadMemberDirectory();
     } catch (err) {
       applyApiErrorToForm(create, err);
       if (err.status === 409) showFieldError(els.email, err.message || 'Email already in use');
@@ -1309,9 +1390,9 @@ function renderLoans() {
       <td><span class="book-title">${esc(bookLabel(loan.book_id))}</span></td>
       <td>${fmtDate(loan.borrowed_at)}</td>
       <td class="${overdue ? 'overdue-text' : ''}">${fmtDate(loan.due_at)}</td>
-      <td>${loan.returned_at ? fmtDate(loan.returned_at) : '—'}</td>
+      <td>${loan.returned_at ? fmtDate(loan.returned_at) : 'Not returned'}</td>
       <td><span class="badge badge-${esc(loan.status)}">${esc(loan.status)}</span></td>
-      <td class="num">${returned ? fmtMoney(loan.late_fee_cents ?? 0) : '—'}</td>
+      <td class="num">${returned ? fmtMoney(loan.late_fee_cents ?? 0) : 'Pending'}</td>
       <td class="actions">${returned ? '' : `<button type="button" class="btn ${overdue ? 'btn-primary' : 'btn-secondary'} btn-sm" data-action="loan-return" data-id="${loan.id}" aria-label="Return ${esc(bookLabel(loan.book_id))}">Return</button>`}</td>
     </tr>`;
   }).join('');
@@ -1329,7 +1410,7 @@ async function returnLoan(id, button) {
     toast({
       type: fee > 0 ? 'warning' : 'success',
       title: `Returned “${bookLabel(loan.book_id)}”`,
-      message: fee > 0 ? `Late fee charged: ${fmtMoney(fee)}.` : 'Returned on time — no late fee.',
+      message: fee > 0 ? `Late fee charged: ${fmtMoney(fee)}.` : 'Returned on time, no late fee.',
       timeout: fee > 0 ? 9000 : undefined,
     });
     state.catalog.loaded = false;
@@ -1355,7 +1436,7 @@ async function loadReports() {
     if (seq !== r.seq) return;
     const rows = Array.isArray(data) ? data : [];
     if (!rows.length) {
-      el.innerHTML = '<div class="empty-state"><p>No paid orders yet — nothing to rank.</p></div>';
+      el.innerHTML = '<div class="empty-state"><p>No paid orders yet, so there is nothing to rank.</p></div>';
       return;
     }
     const max = Math.max(...rows.map((x) => x.copies_sold || 0), 1);
@@ -1395,6 +1476,25 @@ function initActions() {
       case 'page-next':
         state.catalog.offset += state.catalog.limit;
         state.editingBookId = null; loadCatalog(); break;
+      case 'member-page-prev':
+        state.members.offset = Math.max(0, state.members.offset - state.members.limit);
+        loadMemberDirectory(); break;
+      case 'member-page-next':
+        if (state.members.offset + state.members.limit < state.members.total) {
+          state.members.offset += state.members.limit;
+          loadMemberDirectory();
+        }
+        break;
+      case 'select-member': {
+        const member = state.members.items.find((item) => item.id === id);
+        if (member) {
+          setMember(member.id, member);
+          loadStats();
+          toast({ type: 'success', title: `Using ${member.name}`, message: `${cap(member.tier)} member #${member.id}` });
+        }
+        break;
+      }
+      case 'refresh-members': loadMemberDirectory(); break;
       case 'edit-book': startBookEdit(id); break;
       case 'cancel-edit': cancelBookEdit(); break;
       case 'save-book': saveBookEdit(id); break;
@@ -1440,6 +1540,11 @@ function initActions() {
 
   $('#loan-status').addEventListener('change', () => { state.loans.items = []; loadLoans(); });
   $('#report-limit').addEventListener('change', loadReports);
+  $('#member-page-size').addEventListener('change', (e) => {
+    state.members.limit = Number(e.target.value);
+    state.members.offset = 0;
+    loadMemberDirectory();
+  });
 }
 
 /* =========================================================================

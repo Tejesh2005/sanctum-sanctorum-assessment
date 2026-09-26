@@ -26,7 +26,8 @@ The frontend is available at `/`, the OpenAPI interface at `/docs`, and the heal
   workflows. I also fixed a missing event-dispatch case for the loan Return button found during
   manual browser testing.
 - All optional extras:
-  - `GET /members` with deterministic offset pagination.
+  - `GET /members` with deterministic offset pagination, demonstrated in the Members tab with page-size,
+    Previous and Next controls.
   - Concurrency-safe ordering for the last available copy.
   - Additional regression tests for literal wildcard searches, ignored PATCH fields, return-time
     late-fee caps, member pagination and simultaneous final-copy orders.
@@ -66,7 +67,8 @@ integer flooring as specified.
 
 The optional `GET /members` contract was not specified in detail. I mirrored the existing book-page
 shape: `{items, total, limit, offset}`, with default `limit=20`, bounds `1..100`, non-negative offset
-and stable ID ordering.
+and stable ID ordering. The frontend Member directory consumes this endpoint directly, shows the
+current range and total, and disables Previous or Next when the user reaches the corresponding edge.
 
 ### Interface and authorization boundary
 

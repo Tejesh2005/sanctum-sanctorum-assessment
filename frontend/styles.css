@@ -1,4 +1,4 @@
-/* Sanctum Sanctorum — Members' Bookstore
+/* Sanctum Sanctorum - Members' Bookstore
    Restrained navy / warm amber palette. No build step. */
 
 :root {
@@ -289,6 +289,11 @@ input::placeholder { color: #9a9eaa; }
 .stat dd { margin: 2px 0 0; font-size: 1.25rem; font-weight: 650; font-variant-numeric: tabular-nums; }
 .stat.warn dd { color: var(--danger); }
 .member-actions { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
+.member-directory { margin-top: 18px; }
+.member-directory .member-name { font-size: .92rem; }
+.member-directory .member-email { overflow-wrap: anywhere; }
+.member-directory .current-member td { background: var(--amber-100); }
+.member-directory .current-member:hover td { background: var(--amber-100); }
 
 /* ------------------------------------------------------------ Summary */
 .summary { margin: 16px 0 0 auto; max-width: 340px; display: grid; gap: 6px; font-variant-numeric: tabular-nums; }
