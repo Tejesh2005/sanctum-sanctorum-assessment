@@ -125,13 +125,15 @@ deployment health check.
 
 ## AI usage
 
-I used ChatGPT/Codex to help interpret the specification, break the work into incremental changes,
-draft implementation and test ideas, investigate failures, review edge cases and guide the Railway
-deployment. I reviewed the generated changes, ran focused and full tests, inspected diffs, and
-manually exercised the local and deployed interfaces.
+I used ChatGPT/Codex as a development assistant across the assessment, with particularly useful
+support for frontend wiring and UI refinement. I also used it to summarize the requirements,
+identify edge cases and test scenarios, troubleshoot errors, and guide the Railway deployment. I
+reviewed the changes, made the final implementation decisions, ran the test suite, and manually
+verified the important workflows locally and after deployment.
 
-One important AI miss was the frontend Return button: the backend return implementation and tests
-were correct, but the generated UI action dispatcher omitted the `loan-return` case. Manual testing
-showed that clicking the button sent no request. I traced the browser/server behaviour, added the
-missing dispatch case and reran the full suite. This reinforced that passing backend tests is not a
-substitute for exercising the actual interface.
+I did not accept every suggestion automatically. For the optional member-pagination requirement,
+Codex initially recommended implementing only the `GET /members` API because that satisfied the
+written requirement. I decided to go further and add a visible member directory with Previous and
+Next controls. An early frontend change also omitted the `loan-return` action from the UI dispatcher.
+I discovered this while manually testing the Return button, corrected it, and reran the full test
+suite.
