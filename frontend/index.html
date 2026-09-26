@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Sanctum Sanctorum — Members' Bookstore</title>
+  <title>Sanctum Sanctorum - Members' Bookstore</title>
   <meta name="description" content="Members' bookstore and lending library.">
   <link rel="stylesheet" href="styles.css">
   <script type="module" src="app.js"></script>
@@ -13,7 +13,7 @@
 
   <header class="site-header">
     <div class="container header-inner">
-      <a class="wordmark" href="#catalog" aria-label="Sanctum Sanctorum — Members' Bookstore, go to catalog">
+      <a class="wordmark" href="#catalog" aria-label="Sanctum Sanctorum - Members' Bookstore, go to catalog">
         <span class="wordmark-mark" aria-hidden="true">SS</span>
         <span class="wordmark-text">
           <span class="wordmark-name">Sanctum Sanctorum</span>
@@ -112,8 +112,8 @@
           <label for="f-sort">Sort by</label>
           <select id="f-sort" name="sort">
             <option value="">Default</option>
-            <option value="title">Title (A–Z)</option>
-            <option value="-title">Title (Z–A)</option>
+            <option value="title">Title (A-Z)</option>
+            <option value="-title">Title (Z-A)</option>
             <option value="price">Price (low to high)</option>
             <option value="-price">Price (high to low)</option>
           </select>
@@ -215,6 +215,51 @@
                 <button type="submit" class="btn btn-primary">Create and sign in</button>
               </div>
             </form>
+          </div>
+        </div>
+      </div>
+
+      <div class="card card-flush member-directory">
+        <div class="card-head">
+          <div>
+            <h2 class="card-title">Member directory</h2>
+            <p class="hint">Browse members and choose the customer you are assisting.</p>
+          </div>
+          <div class="card-head-tools">
+            <div class="field field-inline">
+              <label for="member-page-size">Per page</label>
+              <select id="member-page-size">
+                <option value="3" selected>3</option>
+                <option value="5">5</option>
+                <option value="10">10</option>
+                <option value="20">20</option>
+              </select>
+            </div>
+            <button type="button" class="btn btn-ghost btn-sm" data-action="refresh-members">Refresh</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table id="members-table" class="table">
+            <caption class="sr-only">Paginated member directory</caption>
+            <thead>
+              <tr>
+                <th scope="col">Member</th>
+                <th scope="col">Email</th>
+                <th scope="col">Tier</th>
+                <th scope="col">Joined</th>
+                <th scope="col" class="actions-col"><span class="sr-only">Actions</span></th>
+              </tr>
+            </thead>
+            <tbody id="members-body">
+              <tr><td colspan="5" class="empty">Loading members...</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="pagination" aria-label="Member directory pagination">
+          <p id="member-page-info" class="muted" aria-live="polite"></p>
+          <div class="btn-group">
+            <button type="button" class="btn btn-secondary btn-sm" data-action="member-page-prev" disabled>Previous</button>
+            <button type="button" class="btn btn-secondary btn-sm" data-action="member-page-next" disabled>Next</button>
           </div>
         </div>
       </div>
